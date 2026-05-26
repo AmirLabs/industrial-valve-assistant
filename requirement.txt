@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+pandas
+chromadb
+langchain
+langchain-core
+langchain-community
+langchain-openai
+tiktoken
+rapidfuzz>=3.0.0
+numpy>=1.24.0
+pytest
