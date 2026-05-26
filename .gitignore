@@ -2,3 +2,11 @@ src/data/
 src/chrome_db
 .env
 learning_note.md
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest cache
+.pytest_cache/
