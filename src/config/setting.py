@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     CHROMA_DB_DIR: str
     ALIAS_PATH: str
     EMBEDDING_MODEL: str = "text-embedding-3-small"
-
+    
+    
     model_config = SettingsConfigDict(env_file=".env",extra="ignore")
 
 settings = Settings()
