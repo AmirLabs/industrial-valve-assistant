@@ -36,21 +36,21 @@ def handle_ambiguous_response(user_text: str, options: list) -> str:
     })
 
 
-def handle_llm_fallback(user_text: str) -> str:
-    # System prompt to restrict LLM persona and domain focus
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a senior technical support engineer at City Energy Control (CEC), specializing in industrial valves (e.g., Kitz Iran, Mirab, Farab, Cim Italy). "
-                   "Answer the user's question professionally based on your technical knowledge. "
-                   "If the question is completely unrelated to valves or industrial piping, politely decline to answer."),
-        ("human", "{query}")
-    ])
+def handle_llm_fallback(user_text: str, history: list = None) -> str:
+    messages = [("system", "You are a senior technical support engineer at CEC answer the question on your own knowledge")]
     
+    if history:
+        for msg in history[:-1]:  # exclude last message, it's already user_text
+            messages.append((msg["role"], msg["content"]))
+    
+    messages.append(("human", "{query}"))
+    
+    prompt = ChatPromptTemplate.from_messages(messages)
     chain = prompt | llm | StrOutputParser()
-    
     return chain.invoke({"query": user_text})
 
 
-def get_chat_response(user_text: str) -> str:
+def get_chat_response(user_text: str,history: list = None) -> str:
     # Layer 1: Keyword Matching
     for intent_key, intent_data in keywords_data.items():
         for keyword in intent_data["keywords"]:
@@ -92,4 +92,4 @@ def get_chat_response(user_text: str) -> str:
             return unique_intents[0]["answer"]
 
     # Final Fallback to LLM knowledge
-    return handle_llm_fallback(user_text)
+    return handle_llm_fallback(user_text,history=history)
