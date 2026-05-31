@@ -37,7 +37,7 @@ def handle_ambiguous_response(user_text: str, options: list) -> str:
 
 
 def handle_llm_fallback(user_text: str, history: list = None) -> str:
-    messages = [("system", "You are a senior technical support engineer at CEC...")]
+    messages = [("system", "You are a senior technical support engineer at CEC answer the question on your own knowledge")]
     
     if history:
         for msg in history[:-1]:  # exclude last message, it's already user_text
