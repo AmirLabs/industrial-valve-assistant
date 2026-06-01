@@ -2,9 +2,11 @@ import logging
 from src.core.router import IntentRouter
 from src.tools.faq.retriever import get_chat_response
 from src.tools.general.handler import handle_general_query
-from src.states.memory import MemoryManager
+from src.tools.pricing.price_handler import handle_price_query
+from src.status.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
+
 
 class FlowManager:
     def __init__(self):
@@ -17,10 +19,7 @@ class FlowManager:
             if not cleaned_message:
                 return "لطفاً پیام خود را به صورت متنی بنویسید."
 
-            #save the message
             self.memory.add_message(session_id, "user", cleaned_message)
-            
-            #get history for using tools
             history = self.memory.get_history(session_id)
 
             intent_analysis = self.router.route_message(cleaned_message)
@@ -36,11 +35,13 @@ class FlowManager:
                 if not response:
                     response = "پاسخی برای این سوال پیدا نشد. چطور می‌توانم کمکتان کنم؟"
 
+            elif detected_intent == "pricing":
+                response = handle_price_query(cleaned_message, session_id=session_id)
+
             else:
                 logger.warning(f"FlowManager: Intent [{detected_intent}] not implemented yet.")
                 response = "پاسخ‌گویی به این نوع درخواست هنوز راه‌اندازی نشده است."
 
-            # ذخیره جواب assistant
             self.memory.add_message(session_id, "assistant", response)
             return response
 
