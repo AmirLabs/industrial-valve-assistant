@@ -23,8 +23,7 @@ def clean_text(text: str) -> str:
         return text
     
     # Remove hidden directional formatting characters
-    text = re.sub(r'[\u200e\u200f\u202a-\u202e]', '', text)
-
+    text = re.sub(r'[\u200b-\u200f\u202a-\u202e]', '', text)    
     # Convert Persian/Arabic digits to standard English digits
     fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
     text = text.translate(fa_to_en)
@@ -175,82 +174,73 @@ def normalize_pressure(pressure_input: str) -> str:
 
 
 def normalize_to_decimal_inch(input_size):
-    """Converts various size inputs (metric, fractions, text) into decimal inch format.
-
-    Args:
-        input_size: The raw size data (can be integer, float, string, fraction).
-
-    Returns:
-        A float value representing the size in decimal inches, or the original clean text if invalid.
-    """
     mm_to_inch_decimal = {
-        "8": 0.25,     # 1/4
-        "10": 0.375,   # 3/8
-        "15": 0.5,     # 1/2
-        "20": 0.75,    # 3/4
-        "25": 1.0,     # 1
-        "32": 1.25,    # 1-1/4
-        "40": 1.5,     # 1-1/2
-        "50": 2.0,     # 2
-        "65": 2.5,     # 2-1/2
-        "80": 3.0,     # 3
-        "100": 4.0,    # 4
-        "125": 5.0,    # 5
-        "150": 6.0,    # 6
-        "200": 8.0,    # 8
-        "250": 10.0,   # 10
-        "300": 12.0,   # 12
+        "8": 0.25,
+        "10": 0.375,
+        "15": 0.5,
+        "20": 0.75,
+        "25": 1.0,
+        "32": 1.25,
+        "40": 1.5,
+        "50": 2.0,
+        "65": 2.5,
+        "80": 3.0,
+        "100": 4.0,
+        "125": 5.0,
+        "150": 6.0,
+        "200": 8.0,
+        "250": 10.0,
+        "300": 12.0,
     }
 
-    # Reuse centralized text cleaning to manage digit translations and spaces
+    def _to_clean_str(value: float) -> str:
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+
     clean_input = clean_text(str(input_size)).lower()
-    
-    # Remove industrial unit notations
     clean_input = clean_input.replace('"', '').replace('inch', '').replace('in', '').strip()
-    
+
     if "mm" in clean_input or "dn" in clean_input:
         val_mm = re.sub(r'[^0-9]', '', clean_input)
-        return mm_to_inch_decimal.get(val_mm, f"Unknown DN {val_mm}")
-    
+        result = mm_to_inch_decimal.get(val_mm, f"Unknown DN {val_mm}")
+        return _to_clean_str(result) if isinstance(result, float) else result
+
     if '/' not in clean_input:
         try:
             if float(clean_input) >= 8:
                 val_mm = str(int(float(clean_input)))
-                return mm_to_inch_decimal.get(val_mm, f"Unknown DN {val_mm}")
+                result = mm_to_inch_decimal.get(val_mm, f"Unknown DN {val_mm}")
+                return _to_clean_str(result) if isinstance(result, float) else result
         except ValueError:
             pass
 
-    # Parse fraction variations (e.g., 1/1/2 or standard formats)
     triple_fraction = re.match(r'^(\d+)/(\d+)/(\d+)$', clean_input)
     if triple_fraction:
-        whole = float(triple_fraction.group(1))
-        num = float(triple_fraction.group(2))
-        denom = float(triple_fraction.group(3))
-        return whole + (num / denom)
+        result = float(triple_fraction.group(1)) + float(triple_fraction.group(2)) / float(triple_fraction.group(3))
+        return _to_clean_str(result)
 
     sticky_fraction = re.match(r'^(\d)(\d)/(\d+)$', clean_input)
     if sticky_fraction:
-        whole = float(sticky_fraction.group(1))
-        num = float(sticky_fraction.group(2))
-        denom = float(sticky_fraction.group(3))
-        return whole + (num / denom)
+        result = float(sticky_fraction.group(1)) + float(sticky_fraction.group(2)) / float(sticky_fraction.group(3))
+        return _to_clean_str(result)
 
     if '-' in clean_input:
         parts = clean_input.split('-')
         if len(parts) == 2 and '/' in parts[1]:
             whole = float(parts[0])
             num, denom = map(float, parts[1].split('/'))
-            return whole + (num / denom)
-            
+            return _to_clean_str(whole + (num / denom))
+
     if '/' in clean_input:
         num, denom = map(float, clean_input.split('/'))
-        return num / denom
+        return _to_clean_str(num / denom)
 
     try:
-        return float(clean_input)
+        result = float(clean_input)
+        return _to_clean_str(result)
     except ValueError:
         return clean_input
-
 
 def normalize_brands(input_text: str) -> str:
     """Retrieves the exact matching company brand equivalent from the configuration map.
