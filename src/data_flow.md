@@ -1,0 +1,44 @@
+```mermaid
+graph TD
+    %% Define Color Styles (Classes)
+    classDef IOStyle fill:#115e59,stroke:#14b8a6,stroke-width:2px,color:#fff;
+    classDef generalStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:1px,color:#fff;
+    classDef faqStyle fill:#581c87,stroke:#a855f7,stroke-width:1px,color:#fff;
+    classDef priceStyle fill:#7c2d12,stroke:#f97316,stroke-width:1px,color:#fff;
+    classDef managerStyle fill:#0369a1,stroke:#0ea5e9,stroke-width:2px,color:#fff;
+    classDef inProgress fill:#2a2a2a,stroke:#888,stroke-width:2px,stroke-dasharray: 5 5,color:#888;
+
+    %% Main Input
+    UserInput[User Input]:::IOStyle --> IntentDetection[Intent Detection]
+
+    %% Intent Routing
+    IntentDetection -->|Intent: general| General[general]:::generalStyle
+    IntentDetection -->|Intent: faq| FAQ[faq]:::faqStyle
+    IntentDetection -->|Intent: price| Price[price]:::priceStyle
+    IntentDetection -->|Intent: technical| Technical[technical]:::inProgress
+
+    %% General Branch
+    General --> GeneralHandler[general_handler]:::generalStyle
+    GeneralHandler --> FlowManager
+
+    %% FAQ Branch
+    FAQ --> Retriever[retriever]:::faqStyle
+    Retriever --> FlowManager
+
+    %% Price Branch
+    Price --> Preprocessing[preprocessing]:::priceStyle
+    Preprocessing --> CheckEntities[check_entities]:::priceStyle
+    CheckEntities --> Status[status]:::priceStyle
+    
+    %% Status Sub-branches to Flow Manager
+    Status -->|found product| FlowManager
+    Status -->|not found| FlowManager
+    Status -->|ask user| FlowManager
+
+    %% Technical Branch (In Progress)
+    Technical -.-> TechnicalHandler[In Progress / Under Development]:::inProgress
+    TechnicalHandler -.-> FlowManager
+
+    %% Central Flow Manager and Output
+    FlowManager[Flow Manager]:::managerStyle --> Output[Final Output]:::IOStyle
+```
