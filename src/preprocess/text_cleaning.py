@@ -37,47 +37,60 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def get_similar_products(user_input: str, threshold: int = 70) -> dict:
-    """Searches for similar products in the global product list using rapidfuzz.
+def get_similar_products(user_input: str,threshold: int = 70) -> dict:
+    """Product search with exact-match priority."""
 
-    Args:
-        user_input: The standardized or cleaned input string.
-        threshold: The minimum score cutoff for fuzzy matching.
-
-    Returns:
-        A dictionary containing the filtered search results and a redundancy flag.
-    """
     if not user_input or not products_list:
-        return {'result_of_search': [], 'Flag': False}
-    
+        return {
+            "result_of_search": [],
+            "Flag": False
+        }
+
     cleaned_input = clean_text(user_input)
-    
-    # Extract matches using fuzzy token set ratio against the imported products_list
+
+    exact_matches = []
+
+    for product in products_list:
+        if clean_text(product) == cleaned_input:
+            exact_matches.append({
+                "product_name": product,
+                "score": 100.0
+            })
+
+    if exact_matches:
+
+        return {
+            "result_of_search": exact_matches,
+            "Flag": False
+            }
+
     matches = process.extract(
-        cleaned_input, 
-        products_list, 
-        scorer=fuzz.token_set_ratio, 
-        score_cutoff=threshold, 
-        limit=None
-    )
-    
-    all_results = [{'product_name': match[0], 'score': round(match[1], 2)} for match in matches]
+        cleaned_input,
+        products_list,
+        scorer=fuzz.token_set_ratio,
+        score_cutoff=threshold,
+        limit=None)
+
+    all_results = [{"product_name": match[0],"score": round(match[1], 2)}for match in matches]
 
     if not all_results:
-        return {'result_of_search': [], 'Flag': False}
 
-    # Filter results that are within 10 points of the maximum score
-    max_score = max(item['score'] for item in all_results)
-    filtered_results = [item for item in all_results if (max_score - item['score']) <= 10]
-    
-    # Set the RedFlag if multiple ambiguous results are found
-    red_flag = True if len(filtered_results) > 1 else False
-   
+        return {
+            "result_of_search": [],
+            "Flag": False
+        }
+    max_score = max(item["score"]for item in all_results)
+
+    filtered_results = [
+        item for item in all_results if (max_score - item["score"]) <= 10
+    ]
+
+    red_flag = len(filtered_results) > 1
+
     return {
-        'result_of_search': filtered_results,
-        'Flag': red_flag
+        "result_of_search": filtered_results,
+        "Flag": red_flag
     }
-
 
 def resolve_alias_fuzzy(user_input: str, threshold: int = 75) -> str:
     """Resolves slang or typos in market terms using fuzzy matching against an alias map.
@@ -193,13 +206,20 @@ def normalize_to_decimal_inch(input_size):
         "300": 12.0,
     }
 
-    def _to_clean_str(value: float) -> str:
+    def _to_clean_str(value):
         if isinstance(value, float) and value.is_integer():
             return str(int(value))
         return str(value)
 
     clean_input = clean_text(str(input_size)).lower()
-    clean_input = clean_input.replace('"', '').replace('inch', '').replace('in', '').strip()
+    clean_input = (
+        clean_input
+        .replace('"', '')
+        .replace('inch', '')
+        .replace('in', '')
+        .replace('اینچ', '')
+        .strip()
+    )
 
     if "mm" in clean_input or "dn" in clean_input:
         val_mm = re.sub(r'[^0-9]', '', clean_input)
@@ -215,15 +235,26 @@ def normalize_to_decimal_inch(input_size):
         except ValueError:
             pass
 
+    space_fraction = re.match(r'^(\d+)\s+(\d+)/(\d+)$', clean_input)
+    if space_fraction:
+        whole = float(space_fraction.group(1))
+        num = float(space_fraction.group(2))
+        denom = float(space_fraction.group(3))
+        return _to_clean_str(whole + (num / denom))
+
     triple_fraction = re.match(r'^(\d+)/(\d+)/(\d+)$', clean_input)
     if triple_fraction:
-        result = float(triple_fraction.group(1)) + float(triple_fraction.group(2)) / float(triple_fraction.group(3))
-        return _to_clean_str(result)
+        whole = float(triple_fraction.group(1))
+        num = float(triple_fraction.group(2))
+        denom = float(triple_fraction.group(3))
+        return _to_clean_str(whole + (num / denom))
 
     sticky_fraction = re.match(r'^(\d)(\d)/(\d+)$', clean_input)
     if sticky_fraction:
-        result = float(sticky_fraction.group(1)) + float(sticky_fraction.group(2)) / float(sticky_fraction.group(3))
-        return _to_clean_str(result)
+        whole = float(sticky_fraction.group(1))
+        num = float(sticky_fraction.group(2))
+        denom = float(sticky_fraction.group(3))
+        return _to_clean_str(whole + (num / denom))
 
     if '-' in clean_input:
         parts = clean_input.split('-')
@@ -237,8 +268,7 @@ def normalize_to_decimal_inch(input_size):
         return _to_clean_str(num / denom)
 
     try:
-        result = float(clean_input)
-        return _to_clean_str(result)
+        return _to_clean_str(float(clean_input))
     except ValueError:
         return clean_input
 
