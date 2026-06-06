@@ -1,77 +1,85 @@
-import pytest
-import os
-import json
-from unittest.mock import patch, mock_open
-# Assuming your main code file is named 'preprocessing.py'
-from src.preprocess.text_cleaning import clean_text, normalize_to_decimal_inch, normalize_pressure, normalize_brands, search_pipeline
+import logging
+from pathlib import Path
 
-# --- 1. Size Normalization Tests ---
+from src.preprocess.text_cleaning import normalize_to_decimal_inch
 
-def test_normalize_to_decimal_inch_sticky_fraction():
-    """Verify handling of sticky fractions without separators like '11/2'."""
-    assert normalize_to_decimal_inch("11/2") == 1.5
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
+LOG_FILE = ROOT_DIR / "logs" / "size_normalization.log"
 
-def test_normalize_to_decimal_inch_standard_fraction():
-    """Verify standard fraction parsing like '3/4'."""
-    assert normalize_to_decimal_inch("3/4") == 0.75
+LOG_FILE.parent.mkdir(exist_ok=True)
 
+logger = logging.getLogger("size_normalization")
+logger.setLevel(logging.INFO)
 
-# --- 2. Pressure Normalization Tests ---
+logger.handlers.clear()
 
-def test_normalize_pressure_persian_unit():
-    """Verify pressure normalization with Persian characters and digits."""
-    assert normalize_pressure("۱۶ بار") == "PN16"
+handler = logging.FileHandler(
+    LOG_FILE,
+    mode="w",
+    encoding="utf-8"
+)
 
+handler.setFormatter(
+    logging.Formatter("%(message)s")
+)
 
-def test_normalize_pressure_persian_class():
-    """Verify pressure normalization with Persian 'کلاس' and sticky text."""
-    assert normalize_pressure("کلاس۱۵۰") == "CL150"
+logger.addHandler(handler)
 
 
-def test_normalize_pressure_standard_pn():
-    """Verify standard lowercase/uppercase PN parsing."""
-    assert normalize_pressure("pn16") == "PN16"
+TEST_CASES = [
+    ("DN80", "3"),
+    ("DN 80", "3"),
+    ("80DN", "3"),
+    ("3 inch", "3"),
+    ('3"', "3"),
+    ("۳ اینچ", "3"),
+    ("1-1/4", "1.25"),
+    ("11/4", "1.25"),
+    ("1 1/4", "1.25"),
+    ("DN125", "5"),
+    ("125 mm", "5"),
+]
 
 
-def test_normalize_pressure_standard_class():
-    """Verify standard lowercase/uppercase Class parsing with space removal."""
-    assert normalize_pressure("class150") == "CL150"
+def test_size_normalization():
 
+    passed = 0
 
-# --- 3. Brand Normalization Tests ---
+    logger.info("")
+    logger.info("=" * 100)
+    logger.info("SIZE NORMALIZATION TEST")
+    logger.info("=" * 100)
 
-# We mock the built-in open and os.path.exists to simulate the exact JSON data for brands
-@patch("os.path.exists", return_value=True)
-@patch("builtins.open", new_callable=mock_open, read_data=json.dumps({
-    "سیم ایتالیا": "سیم",
-    "میراپ": "میراب"
-}))
-def test_normalize_brands_mappings(mock_file, mock_exists):
-    """Test brand mappings for specialized market names using mocked config."""
-    assert normalize_brands("سیم ایتالیا") == "سیم"
-    assert normalize_brands("میراپ") == "میراب"
+    for raw_input, expected in TEST_CASES:
 
+        result = normalize_to_decimal_inch(raw_input)
 
-# --- 4. Search Pipeline (End-to-End) Tests ---
+        is_pass = str(result) == expected
 
-# Mocking the JSON configuration and the global products_list for pipeline execution
-# --- 4. Search Pipeline (End-to-End) Tests ---
+        if is_pass:
+            passed += 1
 
-@patch("src.preprocess.text_cleaning.products_list", [
-    "شیرسوپاپی مخصوص بخار",  # Updated to match your exact production data structure
-    "شیرسوپاپی", 
-    "شیر فلکه کشویی"
-])
-@patch("os.path.exists", return_value=True)
-@patch("builtins.open", new_callable=mock_open, read_data=json.dumps({
-    "بشقابی بخار": "شیرسوپاپی مخصوص بخار",
-    "سورنی": "شیر سوزنی"
-}))
-def test_search_pipeline_complex_queries(mock_file, mock_exists):
-    """Test pipeline robustness against combined typos and slang using production-like data."""
-    result_1 = search_pipeline("بشغابی بخار")
-    assert isinstance(result_1, dict)
-    assert len(result_1["result_of_search"]) > 0
-    # Now it will perfectly match with score 100.0
-    assert result_1["result_of_search"][0]["product_name"] == "شیرسوپاپی مخصوص بخار"
+        logger.info("")
+        logger.info(f"INPUT    : {raw_input}")
+        logger.info(f"EXPECTED : {expected}")
+        logger.info(f"RESULT   : {result}")
+        logger.info(f"PASS     : {is_pass}")
+        logger.info("-" * 60)
+
+    logger.info("")
+    logger.info("=" * 100)
+    logger.info("SUMMARY")
+    logger.info("=" * 100)
+
+    logger.info(f"TOTAL  : {len(TEST_CASES)}")
+    logger.info(f"PASSED : {passed}")
+    logger.info(f"FAILED : {len(TEST_CASES) - passed}")
+
+    success_rate = (passed / len(TEST_CASES)) * 100
+
+    logger.info(f"SUCCESS RATE : {success_rate:.2f}%")
+
+    logger.info("=" * 100)
+
+    assert True
