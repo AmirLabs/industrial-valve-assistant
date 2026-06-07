@@ -1,38 +1,46 @@
-import json
 import logging
-from src.status.memory import MemoryManager
 from src.tools.pricing.entities import extract_entities, ProductEntities
-from src.status.slot_manager import check_slots, SlotResult
-from src.preprocess.text_cleaning import normalize_to_decimal_inch, normalize_pressure, normalize_brands
+from src.status.slot_manager import SlotManager, SlotResult, check_slots
+from src.preprocess.text_cleaning import normalize_to_decimal_inch, normalize_pressure, normalize_brands, search_pipeline
 
 logger = logging.getLogger(__name__)
 
-memory = MemoryManager()
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-def _save_entities(session_id: str, entities: ProductEntities) -> None:
-    memory.add_message(session_id, "entities", json.dumps(entities.model_dump()))
-
-
-def _load_entities(session_id: str) -> ProductEntities | None:
-    history = memory.get_history(session_id)
-    entities_msg = next((m for m in reversed(history) if m["role"] == "entities"), None)
-    if entities_msg:
-        return ProductEntities(**json.loads(entities_msg["content"]))
-    return None
-
-
-def _clear_entities(session_id: str) -> None:
-    memory.clear_history(session_id)
-
-
-def _normalize_entities(entities: ProductEntities) -> ProductEntities:
+def _normalize_entities(entities: ProductEntities) -> None:
+    """Normalizes all entity values in-place."""
+    if entities.product_name:
+        result = search_pipeline(entities.product_name)
+        if result["result_of_search"]:
+            entities.product_name = result["result_of_search"][0]["product_name"]
     if entities.inch:
         entities.inch = str(normalize_to_decimal_inch(entities.inch))
     if entities.pressur_rating:
         entities.pressur_rating = normalize_pressure(entities.pressur_rating)
     if entities.company:
         entities.company = normalize_brands(entities.company)
+
+
+def _normalize_single(field: str, value: str) -> str:
+    """Normalizes a single value based on which field it belongs to."""
+    if field == "inch":
+        return str(normalize_to_decimal_inch(value))
+    if field == "pressur_rating":
+        return normalize_pressure(value)
+    if field == "company":
+        return normalize_brands(value)
+    if field == "product_name":
+        return search_pipeline(value)
+    return value
+
+
+def extract_and_normalize(user_input: str) -> ProductEntities:
+    """Extracts entities from user input and normalizes all values."""
+    entities = extract_entities(user_input)
+    _normalize_entities(entities)
     return entities
 
 
@@ -47,41 +55,48 @@ def _format_price_response(product: dict) -> str:
     )
 
 
-def handle_price_query(user_input: str, session_id: str) -> str:
+# ---------------------------------------------------------------------------
+# Main handler
+# ---------------------------------------------------------------------------
+
+def handle_price_query(user_input: str, slot: SlotManager) -> str:
+    """
+    Handles one turn of a pricing conversation.
+
+    Two cases:
+    1. slot.waiting_for is set  → user answering our question → normalize then patch
+    2. slot.waiting_for is None → fresh input → extract, normalize, then start
+    """
+    print(f"DEBUG slot state: waiting_for={slot.waiting_for}, is_active={slot.is_active}")
+    print(f"DEBUG user_input: {user_input}")
     try:
-        existing_entities = _load_entities(session_id)
+        # --- Case 1: user is answering our question ---
+        if slot.waiting_for:
+            normalized = _normalize_single(slot.waiting_for, user_input)
+            slot.patch(normalized)
 
-        if existing_entities:
-            field = next(
-                (m["content"] for m in reversed(memory.get_history(session_id))
-                 if m["role"] == "waiting_for"), None
-            )
-            if field:
-                setattr(existing_entities, field, user_input.strip())
-                existing_entities = _normalize_entities(existing_entities)
-            entities = existing_entities
+        # --- Case 2: fresh start ---
         else:
-            entities = extract_entities(user_input)
-            entities = _normalize_entities(entities)
+            entities = extract_and_normalize(user_input)
+            slot.start(entities)
+            print(f"DEBUG entities: {slot.entities.model_dump()}") 
 
-        result: SlotResult = check_slots(entities)
+        # --- Run slot check and decide next action ---
+        result: SlotResult = check_slots(slot)
 
         if result.status == "not_found":
-            _clear_entities(session_id)
             return "محصول مورد نظر شما در سیستم یافت نشد. لطفاً مشخصات دیگری را امتحان کنید."
 
         if result.status == "ask_user":
-            _save_entities(session_id, entities)
-            memory.add_message(session_id, "waiting_for", result.field)
             if result.options:
                 options_text = "، ".join(result.options)
                 return f"{result.question}\nگزینه‌ها: {options_text}"
             return result.question
 
         if result.status == "found":
-            _clear_entities(session_id)
             return _format_price_response(result.product)
 
     except Exception as e:
-        logger.error(f"price_handler failed: {e}")
+        logger.error(f"price_handler failed: {e}", exc_info=True)
+        slot.reset()
         return "مشکلی در پردازش درخواست قیمت به وجود آمده است."

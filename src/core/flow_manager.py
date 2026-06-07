@@ -1,9 +1,11 @@
 import logging
+from typing import Dict
 from src.core.router import IntentRouter
 from src.tools.faq.retriever import get_chat_response
 from src.tools.general.handler import handle_general_query
 from src.tools.pricing.price_handler import handle_price_query
 from src.status.memory import MemoryManager
+from src.status.slot_manager import SlotManager
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,18 @@ class FlowManager:
     def __init__(self):
         self.router = IntentRouter()
         self.memory = MemoryManager(window_size=8)
+        self.slot_managers: Dict[str, SlotManager] = {}  # one SlotManager per session
+
+    def _get_slot(self, session_id: str) -> SlotManager:
+        """Returns existing SlotManager for session or creates a new one."""
+        if session_id not in self.slot_managers:
+            self.slot_managers[session_id] = SlotManager(session_id)
+        return self.slot_managers[session_id]
+
+    def _has_pending_price_session(self, session_id: str) -> bool:
+        """Checks if user is already inside a pricing flow."""
+        slot = self._get_slot(session_id)
+        return slot.is_active
 
     def process_message(self, user_message: str, session_id: str) -> str:
         try:
@@ -21,26 +35,32 @@ class FlowManager:
 
             self.memory.add_message(session_id, "user", cleaned_message)
             history = self.memory.get_history(session_id)
+            slot = self._get_slot(session_id)
 
-            intent_analysis = self.router.route_message(cleaned_message)
-            detected_intent = intent_analysis.intent
-
-            logger.info(f"FlowManager: Processing message with intent [{detected_intent}]")
-
-            if detected_intent == "general":
-                response = handle_general_query(cleaned_message, history=history)
-
-            elif detected_intent == "faq":
-                response = get_chat_response(cleaned_message, history=history)
-                if not response:
-                    response = "پاسخی برای این سوال پیدا نشد. چطور می‌توانم کمکتان کنم؟"
-
-            elif detected_intent == "pricing":
-                response = handle_price_query(cleaned_message, session_id=session_id)
+            if self._has_pending_price_session(session_id):
+                logger.info(f"FlowManager: Continuing pending price session [{session_id}]")
+                response = handle_price_query(cleaned_message, slot=slot)
 
             else:
-                logger.warning(f"FlowManager: Intent [{detected_intent}] not implemented yet.")
-                response = "پاسخ‌گویی به این نوع درخواست هنوز راه‌اندازی نشده است."
+                intent_analysis = self.router.route_message(cleaned_message)
+                detected_intent = intent_analysis.intent
+
+                logger.info(f"FlowManager: Processing message with intent [{detected_intent}]")
+
+                if detected_intent == "general":
+                    response = handle_general_query(cleaned_message, history=history)
+
+                elif detected_intent == "faq":
+                    response = get_chat_response(cleaned_message, history=history)
+                    if not response:
+                        response = "پاسخی برای این سوال پیدا نشد. چطور می‌توانم کمکتان کنم؟"
+
+                elif detected_intent == "pricing":
+                    response = handle_price_query(cleaned_message, slot=slot)
+
+                else:
+                    logger.warning(f"FlowManager: Intent [{detected_intent}] not implemented yet.")
+                    response = "پاسخ‌گویی به این نوع درخواست هنوز راه‌اندازی نشده است."
 
             self.memory.add_message(session_id, "assistant", response)
             return response
