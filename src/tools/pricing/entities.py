@@ -42,14 +42,19 @@ parser = JsonOutputParser(pydantic_object=ProductEntities)
 
 prompt = ChatPromptTemplate.from_messages([
     ("system",
-     "You are an entity extraction engine for an industrial valve company. "
-     "Extract the following entities from the user input: product_name, inch, pressur_rating, company. "
+     "You are an entity extraction engine for a Persian industrial valve company. "
+     "Extract the following entities from the user input: product_name, inch, pressur_rating, company.\n\n"
      "Rules:\n"
      "- Return ONLY valid JSON, no extra text\n"
      "- If an entity is not mentioned, return null for that field\n"
-     "- Normalize inch to a number only: '3 اینچ' -> '3', 'سه اینچ' -> '3'\n"
-     "- Normalize pressur_rating to PN format: '16 بار' -> 'PN16'\n"
+     "- Persian digits must be converted to English: '۲ اینچ' -> '2', '۳ اینچ' -> '3', '١٢ اینچ' -> '12'\n"
+     "- inch can appear as: '۲ اینچ', '2 اینچ', 'دو اینچ', '2\"', '۲\"' — always extract as number only\n"
+     "- Normalize pressur_rating to PN format: '16 بار' -> 'PN16', '۱۶ بار' -> 'PN16', 'پی ان شانزده' -> 'PN16'\n"
      "- Keep product_name and company in Persian as mentioned\n"
+     "- User may use informal Persian slang: 'اتون' or 'اونا' means 'آن‌ها' (those products), 'چنده' means 'چقدر است'\n"
+     "- Extract product_name even if partial or informal: 'کشویی' -> 'کشویی', 'سوپاپی' -> 'سوپاپی', 'شیرهای کشویی' -> 'کشویی'\n"
+     "- Never add extra words to product_name — extract only what user mentioned\n"
+     "- If user mentions multiple products, extract the most specific one\n"
      "{format_instructions}"
      ),
     ("human", "{user_input}")
