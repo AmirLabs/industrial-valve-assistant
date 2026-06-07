@@ -1,8 +1,8 @@
 from enum import Enum
 from pydantic import BaseModel,Field
 from langchain_openai import ChatOpenAI
-from config.setting import settings
-from prompts.intent import intent_detection_prompt
+from src.config.setting import settings
+from src.prompts.intent import intent_detection_prompt
 from langchain_core.prompts import ChatPromptTemplate
 
 intent_detection_prompt = ChatPromptTemplate.from_template(intent_detection_prompt)
