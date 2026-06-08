@@ -51,8 +51,44 @@ def _format_price_response(product: dict) -> str:
         f"سایز: {product['inch']} اینچ\n"
         f"فشار کاری: {product['pressur_rating']}\n"
         f"قیمت: {product['price']:,} تومان\n"
-        f"موجودی: {product['stock']} عدد"
     )
+
+
+def _format_ask_message(result: SlotResult, slot: SlotManager) -> str:
+    """Builds a friendly question message based on which field we are asking about."""
+    entities = slot.entities
+    product = entities.product_name or "محصول"
+    inch = entities.inch
+
+    if result.field == "inch":
+        return (
+            f"برای بررسی قیمت محصول {product} نیاز دارم که سایز هم وارد کنید، "
+            f"سایز مورد نظرتون چیست؟"
+        )
+
+    if result.field == "pressur_rating":
+        options_text = " و ".join(result.options) if result.options else ""
+        return (
+            f"محصول {product} با سایز {inch} اینچ "
+            f"دارای دو نوع فشار {options_text} هست، "
+            f"کدام یک مد نظر شماست؟"
+        )
+
+    if result.field == "company":
+        options_text = " و ".join(result.options) if result.options else ""
+        pressure_part = (
+            f"با فشار کاری {entities.pressur_rating} "
+            if entities.pressur_rating else ""
+        )
+        return (
+            f"محصول {product} با سایز {inch} اینچ "
+            f"{pressure_part}"
+            f"برندهای {options_text} موجوده، "
+            f"کدام یک مد نظر شماست؟"
+        )
+
+    # fallback — should not normally happen
+    return result.question
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +115,7 @@ def handle_price_query(user_input: str, slot: SlotManager) -> str:
         else:
             entities = extract_and_normalize(user_input)
             slot.start(entities)
-            print(f"DEBUG entities: {slot.entities.model_dump()}") 
+            print(f"DEBUG entities: {slot.entities.model_dump()}")
 
         # --- Run slot check and decide next action ---
         result: SlotResult = check_slots(slot)
@@ -88,10 +124,7 @@ def handle_price_query(user_input: str, slot: SlotManager) -> str:
             return "محصول مورد نظر شما در سیستم یافت نشد. لطفاً مشخصات دیگری را امتحان کنید."
 
         if result.status == "ask_user":
-            if result.options:
-                options_text = "، ".join(result.options)
-                return f"{result.question}\nگزینه‌ها: {options_text}"
-            return result.question
+            return _format_ask_message(result, slot)
 
         if result.status == "found":
             return _format_price_response(result.product)
