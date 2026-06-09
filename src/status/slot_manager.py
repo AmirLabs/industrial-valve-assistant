@@ -2,13 +2,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from src.tools.pricing.entities import ProductEntities
-from src.tools.pricing.product_repository import query_products, get_unique_values
+from src.tools.pricing.product_repository import query_products, get_unique_values, get_available_sizes
+from src.preprocess.text_cleaning import get_fallback_suggestion
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class SlotResult:
-    status: str                          # "found" | "ask_user" | "not_found"
+    status: str                          # "found" | "ask_user" | "not_found"|"give_up"|"suggest_product"
     product: Optional[dict] = None       # final product row when found
     question: Optional[str] = None       # question to ask user
     options: Optional[list] = None       # choices from database
@@ -27,6 +28,8 @@ class SlotManager:
         self.waiting_for: Optional[str] = None             # parameter we asked about RIGHT NOW
         self.options: Optional[list] = None                # choices shown to user
         self.is_active: bool = False                       # True = inside pricing flow
+        self.suggestion: Optional[str] = None              # suggested product name shown to user (Scenario A)
+        self.retry_count: int = 0                          # how many times user gave wrong product name
 
     def start(self, entities: ProductEntities) -> None:
         """Called when pricing flow begins."""
@@ -53,6 +56,8 @@ class SlotManager:
         self.waiting_for = None
         self.options = None
         self.is_active = False
+        self.suggestion = None
+        self.retry_count = 0
 
 
 def check_slots(slot: SlotManager) -> SlotResult:
@@ -89,8 +94,47 @@ def check_slots(slot: SlotManager) -> SlotResult:
     results = query_products(entities)
 
     if not results:
-        slot.reset()
-        return SlotResult(status="not_found")
+        # --- Scenario B: product name found but size is wrong for this product ---
+        # We know this because inch is already filled (user gave a size)
+        # but the combination product+size returns nothing
+        if entities.inch is not None:
+            available_sizes = get_available_sizes(entities.product_name)
+            if available_sizes:
+                slot.waiting_for = "inch"
+                slot.options = available_sizes
+                return SlotResult(
+                    status="wrong_size",
+                    options=available_sizes,
+                    field="inch"
+                )
+            else:
+                # product name itself is wrong — fall through to Scenario A
+                pass
+
+        # --- Scenario A: product name not found in database ---
+        # Try low threshold fuzzy search to find a suggestion
+        MAX_RETRIES = 2
+        if slot.retry_count >= MAX_RETRIES:
+            slot.reset()
+            return SlotResult(status="give_up")
+
+        fallback = get_fallback_suggestion(entities.product_name)
+        suggestions = fallback.get("result_of_search", [])
+
+        if suggestions:
+            suggested_name = suggestions[0]["product_name"]
+            slot.suggestion = suggested_name
+            slot.waiting_for = "product_confirmation"
+            slot.retry_count += 1
+            return SlotResult(
+                status="suggest_product",
+                field="product_confirmation",
+                options=[suggested_name]
+            )
+        else:
+            # No suggestion found at all
+            slot.reset()
+            return SlotResult(status="not_found")
 
     if len(results) == 1:
         slot.reset()
@@ -133,5 +177,3 @@ def check_slots(slot: SlotManager) -> SlotResult:
     # --- Step 5: return best match ---
     slot.reset()
     return SlotResult(status="found", product=results[0])
-    
- 

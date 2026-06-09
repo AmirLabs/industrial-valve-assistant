@@ -272,6 +272,24 @@ def normalize_to_decimal_inch(input_size):
     except ValueError:
         return clean_input
 
+def get_fallback_suggestion(user_input: str, threshold: int = 25) -> dict:
+    """Last-resort fuzzy search with a very low threshold for wrong product names.
+
+    This is only called when search_pipeline() returns empty (normal threshold failed).
+    It tries to find the nearest product even with a low similarity score,
+    so we can suggest it to the user and ask them to confirm.
+
+    Args:
+        user_input: The wrong product name from the user.
+        threshold: Very low threshold (default 25) to catch even distant matches.
+
+    Returns:
+        A dict with "result_of_search" list and "Flag" bool — same format as get_similar_products().
+    """
+    resolved_input = resolve_alias_fuzzy(user_input, threshold=75)
+    return get_similar_products(resolved_input, threshold=threshold)
+
+
 def normalize_brands(input_text: str) -> str:
     """Retrieves the exact matching company brand equivalent from the configuration map.
 
