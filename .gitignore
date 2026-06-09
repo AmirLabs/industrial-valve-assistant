@@ -12,3 +12,4 @@ __pycache__/
 .pytest_cache/
 .vscode
 logs/
+show_code.py
