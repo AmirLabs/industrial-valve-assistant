@@ -47,6 +47,40 @@ def query_products(entities: ProductEntities) -> list[dict]:
         logger.error(f"Database query failed: {e}")
         return []
 
+def get_available_sizes(product_name: str) -> list:
+    """Returns all unique sizes (inch values) that exist for a given product name.
+
+    This is called in Scenario B — when user gives a correct product name
+    but a size that does not exist for that product in the database.
+    We query only by product_name (ignoring inch) to get all available sizes.
+
+    Args:
+        product_name: The normalized product name string.
+
+    Returns:
+        A sorted list of available inch values, e.g. ["2", "3", "4", "6", "8"].
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        query = """
+            SELECT DISTINCT inch
+            FROM products
+            WHERE product_name LIKE ?
+            AND inch IS NOT NULL
+            ORDER BY CAST(inch AS REAL)
+        """
+        cursor.execute(query, [f"%{product_name}%"])
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [row[0] for row in rows]
+
+    except Exception as e:
+        logger.error(f"Failed to get available sizes for product [{product_name}]: {e}")
+        return []
+
 
 def get_unique_values(entities: ProductEntities, column: str) -> list:
     try:
