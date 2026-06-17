@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-chroma_client = chromadb.PersistentClient(path="src/chrome_db")
+chroma_client = chromadb.PersistentClient(path="src/chroma_db/faq_collection")
 
 
 EMBED_MODEL         = "text-embedding-3-large"

@@ -16,7 +16,7 @@ openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 llm           = ChatOpenAI(api_key=settings.OPENAI_API_KEY, model="gpt-4o", temperature=0.2)
 fast_llm      = ChatOpenAI(api_key=settings.OPENAI_API_KEY, model="gpt-4o-mini", temperature=0)
 
-chroma_client  = chromadb.PersistentClient(path="src/chrome_db")
+chroma_client  = chromadb.PersistentClient(path="src/chroma_db/faq_collection")
 faq_collection = chroma_client.get_or_create_collection(
     name="faq",
     metadata={"hnsw:space": "cosine"}
