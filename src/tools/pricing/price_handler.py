@@ -82,7 +82,7 @@ def _format_price_response(product: dict) -> str:
         f"برند: {product['company']}\n"
         f"سایز: {product['inch']} اینچ\n"
         f"فشار کاری: {product['pressur_rating']}\n"
-        f"قیمت: {product['price']:,} تومان\n"
+        f"قیمت: {product['price']} ریال\n"
     )
 
 

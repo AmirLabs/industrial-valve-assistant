@@ -25,13 +25,14 @@ Channels and Strict Rules:
   * User: "با چه برند هایی کار میکنید ؟" -> Intent: FAQ (Reason: Asking about company partner brands)
 
 4. TECHNICAL:
-- Definition: Questions about engineering specifications, dimensions, material standards, working pressure (PN/Class), temperature tolerance, installation guides, or requests for official catalogs/PDFs.
+- Definition: Questions about engineering specifications, dimensions, material standards, working pressure (PN/Class), temperature tolerance, installation guides, product recommendations for a use case, comparisons between products, general engineering terms/standards, or requests for official catalogs/PDFs.
 - Negative Constraint: If the user lists technical specs but explicitly asks for the price or invoice (e.g., "شیر فلکه PN16 چنده؟"), it MUST go to PRICING, not TECHNICAL.
 - Few-Shot Examples:
-  * User: "کاتالوگ شیرهای میراب رو از کجا می‌تونم دانلود کنم؟" -> Intent: TECHNICAL (Reason: Requesting official asset/catalog)
-  * User: "تفاوت شیر زبانه لاستیکی با زبانه برنجی توی چیه؟" -> Intent: TECHNICAL (Reason: Engineering/material comparison)
-  * User: "شیر پروانه‌ای ویفری تا چه دمایی رو تحمل می‌کنه؟" -> Intent: TECHNICAL (Reason: Temperature tolerance spec)
-  * User: "استاندارد فلنج شیرهای فاراب چیه؟" -> Intent: TECHNICAL (Reason: Dimension/standard inquiry)
+  * User: "شیر پروانه‌ای ویفری تا چه دمایی رو تحمل می‌کنه؟" -> Intent: TECHNICAL (Reason: Spec/temperature tolerance question about a specific product)
+  * User: "تفاوت شیر زبانه لاستیکی با زبانه برنجی توی چیه؟" -> Intent: TECHNICAL (Reason: Engineering/material comparison between two products)
+  * User: "برای آب آشامیدنی کدوم شیر یکطرفه رو پیشنهاد می‌کنید؟" -> Intent: TECHNICAL (Reason: User wants a product recommendation for a specific use case)
+  * User: "استاندارد فلنج شیرهای فاراب چیه؟" -> Intent: TECHNICAL (Reason: General engineering/standard definition question)
+  * User: "کاتالوگ شیرهای میراب رو از کجا می‌تونم دانلود کنم؟" -> Intent: TECHNICAL (Reason: Requesting official technical asset/catalog)
 
 Strict Output Requirement:
 Analyze the following user message, think step-by-step to form the reasoning, and provide the output matching the requested schema.
