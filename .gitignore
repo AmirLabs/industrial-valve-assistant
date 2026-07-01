@@ -13,4 +13,6 @@ __pycache__/
 .vscode
 logs/
 show_code.py
-src/chrome_db
+
+src/chroma_db/
+
