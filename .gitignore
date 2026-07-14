@@ -16,3 +16,4 @@ show_code.py
 
 src/chroma_db/
 
+src/database/conversations.db
