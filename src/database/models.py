@@ -48,7 +48,8 @@ class ExecutionLog(Base):
     )
 
     execution_time: Mapped[float] = mapped_column(Float)   # total time, in seconds
-    router_time: Mapped[float] = mapped_column(Float)      # time spent just in the intent router
+    # A pending pricing turn bypasses the intent router, so this is legitimately absent.
+    router_time: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Free-form JSON, e.g. {"similarity_score": 0.71, "chunks_used": 3}
     rag_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
