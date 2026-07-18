@@ -7,9 +7,7 @@ class Settings(BaseSettings):
     ALIAS_PATH: str
     TAVILY_API_KEY:str
     EMBEDDING_MODEL: str = "text-embedding-3-large"
-    
-    
+    CONVERSATION_DB_URL: str = "sqlite+aiosqlite:///./src/database/conversations.db"
     model_config = SettingsConfigDict(env_file=".env",extra="ignore")
 
 settings = Settings()
-

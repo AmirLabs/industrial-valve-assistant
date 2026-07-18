@@ -1,6 +1,7 @@
 import logging
 import time
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 from src.core.router import IntentRouter
 from src.tools.faq.retriever import get_chat_response
 from src.tools.general.handler import handle_general_query
@@ -11,6 +12,26 @@ from src.status.slot_manager import SlotManager
 from src.status.technical_context import TechnicalContext
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProcessResult:
+    """
+    Everything the API layer needs to both answer the user AND log the turn.
+    response       -> the text shown to the user
+    intent         -> "general" | "faq" | "pricing" | "technical" | "error"
+    execution_time -> total time spent in process_message, in seconds
+    router_time    -> time spent just in router.route_message (None if the pricing
+                       slot-filling shortcut skipped the router entirely)
+    metadata       -> the full per-step timing breakdown, saved as-is into rag_metadata
+    error          -> text of the exception, if one happened
+    """
+    response: str
+    intent: str
+    execution_time: float
+    router_time: Optional[float] = None
+    metadata: Dict[str, float] = field(default_factory=dict)
+    error: Optional[str] = None
 
 class FlowManager:
     def __init__(self):
@@ -36,7 +57,7 @@ class FlowManager:
         slot = self._get_slot(session_id)
         return slot.is_active
 
-    def process_message(self, user_message: str, session_id: str) -> str:
+    def process_message(self, user_message: str, session_id: str) -> ProcessResult:
         t_start = time.perf_counter()
         timings = {}
         logger.info(f"FlowManager: Message received [{session_id}]")
@@ -44,7 +65,12 @@ class FlowManager:
         try:
             cleaned_message = user_message.strip()
             if not cleaned_message:
-                return "لطفاً پیام خود را به صورت متنی بنویسید."
+                empty_reply = "لطفاً پیام خود را به صورت متنی بنویسید."
+                return ProcessResult(
+                    response=empty_reply,
+                    intent="general",
+                    execution_time=time.perf_counter() - t_start,
+                )
 
             t0 = time.perf_counter()
             self.memory.add_message(session_id, "user", cleaned_message)
@@ -58,6 +84,8 @@ class FlowManager:
                 t0 = time.perf_counter()
                 response = handle_price_query(cleaned_message, slot=slot)
                 timings["handle_price_query (pending session)"] = time.perf_counter() - t0
+                # Router was skipped (slot-filling shortcut), but this is still a pricing turn.
+                detected_intent = "pricing"
 
             else:
                 t0 = time.perf_counter()
@@ -109,9 +137,20 @@ class FlowManager:
             breakdown = " | ".join(f"{k}: {v:.2f}s" for k, v in timings.items())
             logger.info(f"FlowManager TIMING [{session_id}] -> {breakdown}")
 
-            return response
+            return ProcessResult(
+                response=response,
+                intent=detected_intent,
+                execution_time=total,
+                router_time=timings.get("router.route_message"),
+                metadata=timings,
+            )
 
         except Exception as e:
             total = time.perf_counter() - t_start
             logger.error(f"Critical error in FlowManager after {total:.2f}s: {e}", exc_info=True)
-            return "مشکلی در پردازش پیام به وجود آمده است."
+            return ProcessResult(
+                response="مشکلی در پردازش پیام به وجود آمده است.",
+                intent="error",
+                execution_time=total,
+                error=str(e),
+            )

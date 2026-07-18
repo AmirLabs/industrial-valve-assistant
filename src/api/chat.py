@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from src.api.dependencies import get_flow_manager
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.api.dependencies import get_flow_manager, get_db_session
 from src.core.flow_manager import FlowManager
+from src.database.conversation_repository import save_conversation_turn
 
 router = APIRouter()
 
@@ -16,6 +19,25 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, flow_manager: FlowManager = Depends(get_flow_manager)):
-    response = flow_manager.process_message(request.message, session_id=request.session_id)
-    return ChatResponse(response=response)
+async def chat(
+    request: ChatRequest,
+    flow_manager: FlowManager = Depends(get_flow_manager),
+    db_session: AsyncSession = Depends(get_db_session),
+):
+    # process_message now catches its own errors and reports them inside result.error,
+    # so we don't need a try/except here anymore - it always returns a ProcessResult.
+    result = flow_manager.process_message(request.message, session_id=request.session_id)
+
+    await save_conversation_turn(
+        db_session,
+        session_id=request.session_id,
+        user_message=request.message,
+        assistant_message=result.response,
+        intent=result.intent,
+        execution_time=result.execution_time,
+        router_time=result.router_time,
+        rag_metadata=result.metadata or None,
+        error=result.error,
+    )
+
+    return ChatResponse(response=result.response)
