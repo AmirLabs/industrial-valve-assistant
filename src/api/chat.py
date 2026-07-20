@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_flow_manager, get_db_session
 from src.core.flow_manager import FlowManager
-from src.database.conversation_repository import save_conversation_turn
+from src.database.conversation_repository import save_conversation_turn, save_token_usage
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ async def chat(
     # so we don't need a try/except here anymore - it always returns a ProcessResult.
     result = flow_manager.process_message(request.message, session_id=request.session_id)
 
-    await save_conversation_turn(
+    conversation = await save_conversation_turn(
         db_session,
         session_id=request.session_id,
         user_message=request.message,
@@ -39,5 +39,17 @@ async def chat(
         rag_metadata=result.metadata or None,
         error=result.error,
     )
+
+    # One row per model call in this turn (router, faq, pricing, ...).
+    # save_token_usage looks up the price and fills the cost columns for us.
+    for usage in result.token_usages:
+        await save_token_usage(
+            db_session,
+            conversation_id=conversation.id,
+            step=usage["step"],
+            model_name=usage["model_name"],
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+        )
 
     return ChatResponse(response=result.response)

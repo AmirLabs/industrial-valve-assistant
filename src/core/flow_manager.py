@@ -1,7 +1,10 @@
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
+
+from langchain_community.callbacks import get_openai_callback
+
 from src.core.router import IntentRouter
 from src.tools.faq.retriever import get_chat_response
 from src.tools.general.handler import handle_general_query
@@ -25,6 +28,10 @@ class ProcessResult:
                        slot-filling shortcut skipped the router entirely)
     metadata       -> the full per-step timing breakdown, saved as-is into rag_metadata
     error          -> text of the exception, if one happened
+    token_usages   -> one dict per model call, e.g.
+                       {"step": "router", "model_name": "gpt-4o-mini",
+                        "prompt_tokens": 120, "completion_tokens": 4}
+                       The API layer loops over this and saves one token_usage row each.
     """
     response: str
     intent: str
@@ -32,6 +39,7 @@ class ProcessResult:
     router_time: Optional[float] = None
     metadata: Dict[str, float] = field(default_factory=dict)
     error: Optional[str] = None
+    token_usages: List[Dict] = field(default_factory=list)
 
 class FlowManager:
     def __init__(self):
@@ -77,19 +85,39 @@ class FlowManager:
             history = self.memory.get_history(session_id)
             timings["memory_read"] = time.perf_counter() - t0
 
+            # One dict per model call. The API layer turns each into a token_usage row.
+            token_usages: List[Dict] = []
+
+            def _record(cb, step: str, model_name: str) -> None:
+                """Add one token_usages entry from a get_openai_callback box.
+                Skips steps that made no model call (e.g. a greeting), so we never
+                save empty 0-token rows."""
+                if cb.total_tokens == 0:
+                    return
+                token_usages.append({
+                    "step": step,
+                    "model_name": model_name,
+                    "prompt_tokens": cb.prompt_tokens,
+                    "completion_tokens": cb.completion_tokens,
+                })
+
             slot = self._get_slot(session_id)
 
             if self._has_pending_price_session(session_id):
                 logger.info(f"FlowManager: Continuing pending price session [{session_id}]")
                 t0 = time.perf_counter()
-                response = handle_price_query(cleaned_message, slot=slot)
+                with get_openai_callback() as cb:
+                    response = handle_price_query(cleaned_message, slot=slot)
+                _record(cb, "pricing", "gpt-4o")
                 timings["handle_price_query (pending session)"] = time.perf_counter() - t0
                 # Router was skipped (slot-filling shortcut), but this is still a pricing turn.
                 detected_intent = "pricing"
 
             else:
                 t0 = time.perf_counter()
-                intent_analysis = self.router.route_message(cleaned_message)
+                with get_openai_callback() as cb:
+                    intent_analysis = self.router.route_message(cleaned_message)
+                _record(cb, "router", "gpt-4o-mini")
                 detected_intent = intent_analysis.intent
                 timings["router.route_message"] = time.perf_counter() - t0
 
@@ -97,29 +125,40 @@ class FlowManager:
 
                 if detected_intent == "general":
                     t0 = time.perf_counter()
-                    response = handle_general_query(cleaned_message, history=history)
+                    with get_openai_callback() as cb:
+                        response = handle_general_query(cleaned_message, history=history)
+                    _record(cb, "general", "gpt-4o")
                     timings["handle_general_query"] = time.perf_counter() - t0
 
                 elif detected_intent == "faq":
                     t0 = time.perf_counter()
-                    response = get_chat_response(cleaned_message, history=history)
+                    with get_openai_callback() as cb:
+                        response = get_chat_response(cleaned_message, history=history)
+                    # faq mixes gpt-4o-mini (query cleanup) + gpt-4o (answer); we label the
+                    # main answer model. Cost is close, not exact - see Option A.
+                    _record(cb, "faq", "gpt-4o")
                     timings["get_chat_response (faq/RAG)"] = time.perf_counter() - t0
                     if not response:
                         response = "پاسخی برای این سوال پیدا نشد. چطور می‌توانم کمکتان کنم؟"
 
                 elif detected_intent == "pricing":
                     t0 = time.perf_counter()
-                    response = handle_price_query(cleaned_message, slot=slot)
+                    with get_openai_callback() as cb:
+                        response = handle_price_query(cleaned_message, slot=slot)
+                    _record(cb, "pricing", "gpt-4o")
                     timings["handle_price_query"] = time.perf_counter() - t0
 
                 elif detected_intent == "technical":
                     technical_context = self._get_technical_context(session_id)
                     t0 = time.perf_counter()
-                    response = handle_technical_query(
-                        cleaned_message,
-                        history=history,
-                        context=technical_context,
-                    )
+                    with get_openai_callback() as cb:
+                        response = handle_technical_query(
+                            cleaned_message,
+                            history=history,
+                            context=technical_context,
+                        )
+                    # technical also mixes models; label the main model (Option A).
+                    _record(cb, "technical", "gpt-4o")
                     timings["handle_technical_query"] = time.perf_counter() - t0
 
                 else:
@@ -143,6 +182,7 @@ class FlowManager:
                 execution_time=total,
                 router_time=timings.get("router.route_message"),
                 metadata=timings,
+                token_usages=token_usages,
             )
 
         except Exception as e:
