@@ -41,6 +41,13 @@ class Conversation(Base):
         cascade="all, delete-orphan",
     )
 
+    # The full debug trace of this turn (usually one row). Read it by
+    # conversation_id to see step-by-step what happened inside the process.
+    debug_traces: Mapped[list["DebugTraceRecord"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
 
 class ExecutionLog(Base):
     __tablename__ = "execution_logs"
@@ -101,3 +108,31 @@ class TokenUsage(Base):
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="token_usages")
+
+
+class DebugTraceRecord(Base):
+    """
+    Stores the full step-by-step debug trace of one turn, as JSON.
+
+    The Python object that collects the trace is the Pydantic `DebugTrace`
+    class in src/database/debug_trace.py. Here we just keep its JSON so we
+    can read it back later by conversation_id.
+    """
+    __tablename__ = "debug_traces"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    # Quick label so you can scan the table by intent without opening the JSON.
+    intent: Mapped[str] = mapped_column(String(32), index=True)
+
+    # The whole DebugTrace object (nested router/faq/technical/pricing) as JSON.
+    trace: Mapped[dict] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="debug_traces")
