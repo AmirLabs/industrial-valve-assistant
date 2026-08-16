@@ -216,9 +216,17 @@ class FlowManager:
         except Exception as e:
             total = time.perf_counter() - t_start
             logger.error(f"Critical error in FlowManager after {total:.2f}s: {e}", exc_info=True)
+
+            # Keep whatever the handlers managed to fill before the crash - that
+            # partial trace is exactly what tells us how far the turn got.
+            trace.error = str(e)
+            trace.intent = "error"
+            trace.execution_time = total
+
             return ProcessResult(
                 response="مشکلی در پردازش پیام به وجود آمده است.",
                 intent="error",
                 execution_time=total,
                 error=str(e),
+                debug_trace=trace,
             )
