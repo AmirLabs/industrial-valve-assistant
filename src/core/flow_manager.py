@@ -13,6 +13,13 @@ from src.tools.technical.technical_handler import handle_technical_query
 from src.status.memory import MemoryManager
 from src.status.slot_manager import SlotManager
 from src.status.technical_context import TechnicalContext
+from src.database.debug_trace import (
+    DebugTrace,
+    GeneralTrace,
+    FaqTrace,
+    TechnicalTrace,
+    PricingTrace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,8 @@ class ProcessResult:
                        {"step": "router", "model_name": "gpt-4o-mini",
                         "prompt_tokens": 120, "completion_tokens": 4}
                        The API layer loops over this and saves one token_usage row each.
+    debug_trace    -> the full DebugTrace object (nested per-step details),
+                       saved as JSON into the debug_traces table for debugging.
     """
     response: str
     intent: str
@@ -40,6 +49,7 @@ class ProcessResult:
     metadata: Dict[str, float] = field(default_factory=dict)
     error: Optional[str] = None
     token_usages: List[Dict] = field(default_factory=list)
+    debug_trace: Optional[DebugTrace] = None
 
 class FlowManager:
     def __init__(self):
@@ -69,6 +79,12 @@ class FlowManager:
         t_start = time.perf_counter()
         timings = {}
         logger.info(f"FlowManager: Message received [{session_id}]")
+
+        # Collects step-by-step debug details for this turn. Handlers write
+        # into their matching sub-trace; we save the whole thing as JSON later.
+        # Built BEFORE the try so the except block can always return it - even
+        # if the turn dies on the very first line.
+        trace = DebugTrace(session_id=session_id)
 
         try:
             cleaned_message = user_message.strip()
@@ -106,8 +122,9 @@ class FlowManager:
             if self._has_pending_price_session(session_id):
                 logger.info(f"FlowManager: Continuing pending price session [{session_id}]")
                 t0 = time.perf_counter()
+                trace.pricing = PricingTrace()
                 with get_openai_callback() as cb:
-                    response = handle_price_query(cleaned_message, slot=slot)
+                    response = handle_price_query(cleaned_message, slot=slot, trace=trace.pricing)
                 _record(cb, "pricing", "gpt-4o")
                 timings["handle_price_query (pending session)"] = time.perf_counter() - t0
                 # Router was skipped (slot-filling shortcut), but this is still a pricing turn.
@@ -119,21 +136,24 @@ class FlowManager:
                     intent_analysis = self.router.route_message(cleaned_message)
                 _record(cb, "router", "gpt-4o-mini")
                 detected_intent = intent_analysis.intent
+                trace.router.detected_intent = detected_intent
                 timings["router.route_message"] = time.perf_counter() - t0
 
                 logger.info(f"FlowManager: Processing message with intent [{detected_intent}]")
 
                 if detected_intent == "general":
                     t0 = time.perf_counter()
+                    trace.general = GeneralTrace()
                     with get_openai_callback() as cb:
-                        response = handle_general_query(cleaned_message, history=history)
+                        response = handle_general_query(cleaned_message, history=history, trace=trace.general)
                     _record(cb, "general", "gpt-4o")
                     timings["handle_general_query"] = time.perf_counter() - t0
 
                 elif detected_intent == "faq":
                     t0 = time.perf_counter()
+                    trace.faq = FaqTrace()
                     with get_openai_callback() as cb:
-                        response = get_chat_response(cleaned_message, history=history)
+                        response = get_chat_response(cleaned_message, history=history, trace=trace.faq)
                     # faq mixes gpt-4o-mini (query cleanup) + gpt-4o (answer); we label the
                     # main answer model. Cost is close, not exact - see Option A.
                     _record(cb, "faq", "gpt-4o")
@@ -143,19 +163,22 @@ class FlowManager:
 
                 elif detected_intent == "pricing":
                     t0 = time.perf_counter()
+                    trace.pricing = PricingTrace()
                     with get_openai_callback() as cb:
-                        response = handle_price_query(cleaned_message, slot=slot)
+                        response = handle_price_query(cleaned_message, slot=slot, trace=trace.pricing)
                     _record(cb, "pricing", "gpt-4o")
                     timings["handle_price_query"] = time.perf_counter() - t0
 
                 elif detected_intent == "technical":
                     technical_context = self._get_technical_context(session_id)
                     t0 = time.perf_counter()
+                    trace.technical = TechnicalTrace()
                     with get_openai_callback() as cb:
                         response = handle_technical_query(
                             cleaned_message,
                             history=history,
                             context=technical_context,
+                            trace=trace.technical,
                         )
                     # technical also mixes models; label the main model (Option A).
                     _record(cb, "technical", "gpt-4o")
@@ -172,6 +195,10 @@ class FlowManager:
             total = time.perf_counter() - t_start
             timings["TOTAL"] = total
 
+            # Fill the top-level trace fields now that the turn is done.
+            trace.intent = detected_intent
+            trace.execution_time = total
+
             # Pretty timing breakdown in logs - this is the line you care about
             breakdown = " | ".join(f"{k}: {v:.2f}s" for k, v in timings.items())
             logger.info(f"FlowManager TIMING [{session_id}] -> {breakdown}")
@@ -183,6 +210,7 @@ class FlowManager:
                 router_time=timings.get("router.route_message"),
                 metadata=timings,
                 token_usages=token_usages,
+                debug_trace=trace,
             )
 
         except Exception as e:
