@@ -83,7 +83,7 @@ def _query_chroma(embedding: list[float]) -> dict | None:
     }
 
 
-def _search_faq(user_text: str) -> dict | None:
+def _search_faq(user_text: str, trace=None) -> dict | None:
     """
     Two-stage search pipeline:
 
@@ -102,6 +102,9 @@ def _search_faq(user_text: str) -> dict | None:
     raw_vec    = list(_cached_embed_query(user_text))
     raw_result = _query_chroma(raw_vec)
 
+    if trace and raw_result:
+        trace.raw_similarity = raw_result["similarity"]
+
     if raw_result and raw_result["similarity"] >= HIGH_THRESHOLD:
         logger.debug(f"Fast-path hit  sim={raw_result['similarity']:.4f}  '{user_text}'")
         return raw_result
@@ -109,6 +112,9 @@ def _search_faq(user_text: str) -> dict | None:
     # ── Stage 2: slow path — normalise then re-embed ─────────────────────
     normalised = _normalize_query(user_text)
     logger.debug(f"Normalised: '{user_text}' → '{normalised}'")
+
+    if trace:
+        trace.normalized_query = normalised
 
     if normalised == user_text:
         # Normalisation returned identical text → reuse raw result, skip re-embed
@@ -165,7 +171,7 @@ def _handle_llm_fallback(user_text: str, history: list = None) -> str:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def get_chat_response(user_text: str, history: list = None) -> str:
+def get_chat_response(user_text: str, history: list = None, trace=None) -> str:
     """
     Runtime FAQ response pipeline:
 
@@ -185,19 +191,27 @@ def get_chat_response(user_text: str, history: list = None) -> str:
     └─────────────────────────────────────────────────────────────────┘
     """
     try:
-        result = _search_faq(user_text)
+        result = _search_faq(user_text, trace=trace)
 
         if result:
             similarity = result["similarity"]
             answer     = result["metadata"]["answer"]
 
             if similarity >= HIGH_THRESHOLD:
+                if trace:
+                    trace.path = "fast_path"
+                    trace.matched_answer_preview = answer[:200]
                 return answer
 
             if similarity >= SOFT_THRESHOLD:
+                if trace:
+                    trace.path = "soft_match"
+                    trace.matched_answer_preview = answer[:200]
                 return _handle_soft_match(user_text, answer)
 
     except Exception as e:
         logger.error(f"FAQ search failed: {e}")
 
+    if trace:
+        trace.path = "llm_fallback"
     return _handle_llm_fallback(user_text, history=history)

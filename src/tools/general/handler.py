@@ -25,14 +25,20 @@ CAPABILITIES_TEMPLATE = (
 llm = ChatOpenAI(api_key=settings.OPENAI_API_KEY, model="gpt-4o", temperature=0.5)
 
 
-def handle_general_query(user_text: str, history: list = None) -> str:
+def handle_general_query(user_text: str, history: list = None, trace=None) -> str:
     cleaned_text = user_text.strip()
     words = cleaned_text.split()
 
     is_greeting = any(kw in cleaned_text for kw in GREETING_KEYWORDS) or \
                   any(word in GREETING_KEYWORDS for word in words)
 
+    if trace:
+        trace.is_greeting = is_greeting
+
     if is_greeting:
+        # Fixed template - no model call happened.
+        if trace:
+            trace.used_llm = False
         return CAPABILITIES_TEMPLATE
 
     try:
@@ -52,8 +58,12 @@ def handle_general_query(user_text: str, history: list = None) -> str:
 
         prompt = ChatPromptTemplate.from_messages(messages)
         chain = prompt | llm | StrOutputParser()
+        if trace:
+            trace.used_llm = True
         return chain.invoke({"query": cleaned_text})
 
     except Exception as e:
         logger.error(f"General tool LLM fallback failed: {e}")
+        if trace:
+            trace.used_llm = False
         return CAPABILITIES_TEMPLATE

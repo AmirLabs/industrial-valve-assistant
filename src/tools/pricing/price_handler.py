@@ -127,7 +127,7 @@ def _format_ask_message(result: SlotResult, slot: SlotManager) -> str:
 # Main handler
 # ---------------------------------------------------------------------------
 
-def handle_price_query(user_input: str, slot: SlotManager) -> str:
+def handle_price_query(user_input: str, slot: SlotManager, trace=None) -> str:
     """
     Handles one turn of a pricing conversation.
 
@@ -172,6 +172,16 @@ def handle_price_query(user_input: str, slot: SlotManager) -> str:
 
         # --- Run slot check and decide next action ---
         result: SlotResult = check_slots(slot)
+
+        if trace:
+            # Snapshot what we know at the end of this pricing turn.
+            try:
+                trace.entities = slot.entities.model_dump()
+            except Exception:
+                trace.entities = None
+            trace.slot_status = result.status
+            trace.waiting_for = slot.waiting_for
+            trace.options = result.options
 
         if result.status == "not_found":
             return "محصول مورد نظر شما در سیستم یافت نشد. لطفاً مشخصات دیگری را امتحان کنید."
