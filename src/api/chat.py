@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_flow_manager, get_db_session
 from src.core.flow_manager import FlowManager
-from src.database.conversation_repository import save_conversation_turn, save_token_usage
+from src.database.conversation_repository import (
+    save_conversation_turn,
+    save_token_usage,
+    save_debug_trace,
+)
 
 router = APIRouter()
 
@@ -50,6 +54,15 @@ async def chat(
             model_name=usage["model_name"],
             prompt_tokens=usage["prompt_tokens"],
             completion_tokens=usage["completion_tokens"],
+        )
+
+    # Full step-by-step debug trace of this turn, saved as JSON.
+    # Read it back by conversation_id when an answer looks wrong.
+    if result.debug_trace is not None:
+        await save_debug_trace(
+            db_session,
+            conversation_id=conversation.id,
+            trace=result.debug_trace,
         )
 
     return ChatResponse(response=result.response)

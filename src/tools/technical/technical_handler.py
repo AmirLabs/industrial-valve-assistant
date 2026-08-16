@@ -172,6 +172,7 @@ def handle_technical_query(
     message: str,
     history: list,
     context: TechnicalContext,
+    trace=None,
 ) -> str:
     """
     Entry point for technical intent.
@@ -183,19 +184,24 @@ def handle_technical_query(
         handler = TechnicalHandler()
         decision = handler.decide(message, history, context)
 
+        if trace:
+            trace.category = str(decision.category.value)
+            trace.query_fa = decision.query_fa
+            trace.brand = decision.brand
+
         logger.info(f"TechnicalHandler: Routing category=[{decision.category}]")
 
         if decision.category == TechnicalCategory.TECHNICAL_USAGE:
-            return _route_technical_usage(handler, decision, context)
+            return _route_technical_usage(handler, decision, context, trace=trace)
 
         elif decision.category == TechnicalCategory.SUGGESTION:
-            return _route_suggestion(handler, decision, message, history, context)
+            return _route_suggestion(handler, decision, message, history, context, trace=trace)
 
         elif decision.category == TechnicalCategory.COMPARE:
-            return _route_compare(handler, decision, context)
+            return _route_compare(handler, decision, context, trace=trace)
 
         elif decision.category == TechnicalCategory.GENERAL_ENGINEERING:
-            return _route_general_engineering(decision)
+            return _route_general_engineering(decision, trace=trace)
 
         else:
             logger.warning(f"TechnicalHandler: Unknown category [{decision.category}]")
@@ -210,19 +216,41 @@ def handle_technical_query(
 # Category Routers
 # ─────────────────────────────────────────────
 
+def _trace_search(trace, results) -> None:
+    """Records catalog search results into the trace (top score / product / count)."""
+    if not trace:
+        return
+    trace.results_count = len(results)
+    if results:
+        top = results[0]
+        trace.top_score = top.score
+        trace.top_product = top.metadata.get("product_name")
+
+
+def _trace_crag(trace, crag) -> None:
+    """Records the CRAG verification decision into the trace."""
+    if not trace:
+        return
+    trace.crag_is_relevant = crag.is_relevant
+    trace.crag_best_index = crag.best_result_index
+
+
 def _route_technical_usage(
     handler: TechnicalHandler,
     decision: TechnicalDecision,
     context: TechnicalContext,
+    trace=None,
 ) -> str:
     """technical_usage → catalog only → fallback to asset_manager link if not found."""
     logger.info(f"TechnicalHandler: [technical_usage] query_fa=[{decision.query_fa}]")
 
     results = search_catalog(decision.query_fa, brand=decision.brand)
+    _trace_search(trace, results)
     if not results:
         return build_fallback_message(decision.brand)
 
     crag = verify_with_crag(decision.query_fa, results)
+    _trace_crag(trace, crag)
     if not crag.is_relevant or crag.best_result_index is None:
         return build_fallback_message(decision.brand)
 
@@ -237,17 +265,20 @@ def _route_suggestion(
     message: str,
     history: list,
     context: TechnicalContext,
+    trace=None,
 ) -> str:
     """suggestion → LLM suggests product type → then catalog search to verify."""
     logger.info("TechnicalHandler: [suggestion] asking LLM for product suggestion")
 
     suggestion = handler.suggest_product(message, history)
     results = search_catalog(suggestion.search_query_fa)
+    _trace_search(trace, results)
 
     if not results:
         return build_fallback_message(decision.brand)
 
     crag = verify_with_crag(decision.query_fa, results)
+    _trace_crag(trace, crag)
     if not crag.is_relevant or crag.best_result_index is None:
         return build_fallback_message(decision.brand)
 
@@ -260,19 +291,24 @@ def _route_compare(
     handler: TechnicalHandler,
     decision: TechnicalDecision,
     context: TechnicalContext,
+    trace=None,
 ) -> str:
     """compare → catalog first, fallback to web search, then asset_manager link if both fail."""
     logger.info(f"TechnicalHandler: [compare] query_fa=[{decision.query_fa}]")
 
     results = search_catalog(decision.query_fa, brand=decision.brand)
+    _trace_search(trace, results)
     if results:
         crag = verify_with_crag(decision.query_fa, results)
+        _trace_crag(trace, crag)
         if crag.is_relevant and crag.best_result_index is not None:
             best = results[crag.best_result_index]
             context.remember_product(best.metadata)
             return handler.write_final_answer(decision.query_fa, best.content)
 
     logger.info("TechnicalHandler: [compare] catalog not sufficient, falling back to web search")
+    if trace:
+        trace.used_web_search = True
     web_result = search_web(decision.query_fa)
 
     if web_result["success"]:
@@ -282,7 +318,7 @@ def _route_compare(
     return build_fallback_message(decision.brand)
 
 
-def _route_general_engineering(decision: TechnicalDecision) -> str:
+def _route_general_engineering(decision: TechnicalDecision, trace=None) -> str:
     logger.info(f"TechnicalHandler: [general_engineering] query_fa=[{decision.query_fa}]")
 
     llm_result = get_llm_knowledge_answer(decision.query_fa)
@@ -290,6 +326,8 @@ def _route_general_engineering(decision: TechnicalDecision) -> str:
         return llm_result.answer_fa
 
     logger.info("TechnicalHandler: LLM not confident, falling back to web search")
+    if trace:
+        trace.used_web_search = True
     web_result = search_web(decision.query_fa)
 
     if web_result["success"]:

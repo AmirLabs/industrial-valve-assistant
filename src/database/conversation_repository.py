@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.database.models import Conversation, ExecutionLog, TokenUsage
+from src.database.models import Conversation, ExecutionLog, TokenUsage, DebugTraceRecord
+from src.database.debug_trace import DebugTrace
 from src.config.model_prices import get_model_price
 
 async def save_conversation_turn(
@@ -81,3 +82,30 @@ async def save_token_usage(
 
     await session.commit()
     return usage
+
+
+async def save_debug_trace(
+    session: AsyncSession,
+    *,
+    conversation_id: int,
+    trace: DebugTrace,
+) -> DebugTraceRecord:
+    """
+    Saves the full debug trace of one turn as JSON.
+
+    `trace` is the Pydantic DebugTrace object the handlers filled during the
+    turn. We store conversation.id on it, dump it to a plain dict, and save
+    one row. Later, read it back by conversation_id to debug that turn.
+    """
+    trace.conversation_id = conversation_id
+
+    record = DebugTraceRecord(
+        conversation_id=conversation_id,
+        intent=trace.intent or "unknown",
+        # mode="json" turns nested Pydantic models into plain JSON-safe values.
+        trace=trace.model_dump(mode="json"),
+    )
+    session.add(record)
+
+    await session.commit()
+    return record
