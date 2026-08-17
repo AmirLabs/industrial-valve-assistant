@@ -45,6 +45,16 @@ class PricingTrace(BaseModel):
     waiting_for: Optional[str] = None
     options: Optional[list] = None
 
+    # --- Filled only when the message arrived while we waited for an answer ---
+    # "continue" | "cancel" | "pricing" | "technical" | "faq" | "general"
+    pending_action: Optional[str] = None
+    # Where the user went when they stepped away from the quote.
+    detour_intent: Optional[str] = None
+    # How many times they stepped away so far in this quote.
+    detour_count: Optional[int] = None
+    # Slot state at the end of the turn: "inactive" | "active" | "paused"
+    slot_state: Optional[str] = None
+
 
 class DebugTrace(BaseModel):
     """The full trace of one chat turn. Saved as JSON in debug_traces.trace."""
