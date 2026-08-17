@@ -182,6 +182,8 @@ def handle_price_query(user_input: str, slot: SlotManager, trace=None) -> str:
             trace.slot_status = result.status
             trace.waiting_for = slot.waiting_for
             trace.options = result.options
+            trace.slot_state = slot.state.value
+            trace.detour_count = slot.detour_count
 
         if result.status == "not_found":
             return "محصول مورد نظر شما در سیستم یافت نشد. لطفاً مشخصات دیگری را امتحان کنید."
@@ -192,17 +194,28 @@ def handle_price_query(user_input: str, slot: SlotManager, trace=None) -> str:
                 "لطفاً با پشتیبانی تماس بگیرید یا محصول رو از سایت انتخاب کنید."
             )
 
+        # The three cases below all ask the user something. We store the text
+        # exactly as they see it, so the router knows what we are waiting for
+        # and we can ask it again after the user steps away.
+
         if result.status == "suggest_product":
             original = slot.entities.product_name
             suggested = slot.suggestion
-            return _format_suggest_product_message(original, suggested)
+            message = _format_suggest_product_message(original, suggested)
+            slot.options = result.options
+            slot.remember_question(message)
+            return message
 
         if result.status == "wrong_size":
             product = slot.entities.product_name or "این محصول"
-            return _format_wrong_size_message(product, result.options)
+            message = _format_wrong_size_message(product, result.options)
+            slot.remember_question(message)
+            return message
 
         if result.status == "ask_user":
-            return _format_ask_message(result, slot)
+            message = _format_ask_message(result, slot)
+            slot.remember_question(message)
+            return message
 
         if result.status == "found":
             return _format_price_response(result.product)
