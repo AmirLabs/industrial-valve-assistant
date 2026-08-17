@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from langchain_community.callbacks import get_openai_callback
 
-from src.core.router import IntentRouter
+from src.core.router import IntentRouter, PendingAction
 from src.tools.faq.retriever import get_chat_response
 from src.tools.general.handler import handle_general_query
 from src.tools.pricing.price_handler import handle_price_query
@@ -22,6 +22,24 @@ from src.database.debug_trace import (
 )
 
 logger = logging.getLogger(__name__)
+
+CANCEL_MESSAGE = "باشه، استعلام قیمت رو لغو کردم. هر وقت کاری داشتید در خدمتم."
+
+GIVE_UP_MESSAGE = (
+    "فعلاً استعلام قیمت رو نگه می‌دارم. "
+    "هر وقت خواستید ادامه بدیم، فقط بگید."
+)
+
+
+def _build_return_line(slot: SlotManager, about_current_options: bool) -> str:
+    """
+    Builds the sentence that brings the user back to the waiting question,
+    after we answered something else for them.
+    """
+    if about_current_options and slot.options:
+        choices = " یا ".join(str(o) for o in slot.options)
+        return f"حالا که بیشتر آشنا شدید، کدوم رو ترجیح می‌دید؟ {choices}"
+    return f"برگردیم به استعلام قیمت؟\n{slot.last_question}"
 
 
 @dataclass
@@ -75,6 +93,150 @@ class FlowManager:
         slot = self._get_slot(session_id)
         return slot.is_active
 
+    def _handle_pending_turn(
+        self,
+        *,
+        decision,
+        message: str,
+        slot: SlotManager,
+        history: list,
+        session_id: str,
+        trace: DebugTrace,
+        record,
+        timings: Dict[str, float],
+    ) -> tuple:
+        """
+        Runs one turn that arrived while a price quote was waiting for an answer.
+
+        Returns (intent, response). The four paths are:
+          continue -> feed the answer into the slot, as before
+          cancel   -> drop the quote
+          pricing  -> the user wants a different product, start over
+          other    -> answer their question, then ask ours again
+        """
+        action = decision.action
+
+        # --- The user gave up ---
+        if action is PendingAction.CANCEL:
+            slot.reset()
+            trace.pricing.slot_state = slot.state.value
+            return "pricing", CANCEL_MESSAGE
+
+        # --- The user answered us ---
+        if action is PendingAction.CONTINUE:
+            answer_text = self._pick_answer_text(decision, message, slot)
+            t0 = time.perf_counter()
+            with get_openai_callback() as cb:
+                response = handle_price_query(answer_text, slot=slot, trace=trace.pricing)
+            record(cb, "pricing", "gpt-4o")
+            timings["handle_price_query (pending session)"] = time.perf_counter() - t0
+            return "pricing", response
+
+        # --- The user asks about a different product: drop the old quote, start fresh ---
+        if action is PendingAction.PRICING:
+            slot.reset()
+            t0 = time.perf_counter()
+            with get_openai_callback() as cb:
+                response = handle_price_query(message, slot=slot, trace=trace.pricing)
+            record(cb, "pricing", "gpt-4o")
+            timings["handle_price_query (new product)"] = time.perf_counter() - t0
+            return "pricing", response
+
+        # --- The user stepped away to ask something else ---
+        slot.pause()
+        trace.pricing.detour_intent = action.value
+        trace.pricing.detour_count = slot.detour_count
+
+        question = decision.rewritten_question or message
+        logger.info(f"FlowManager: Detour to [{action.value}] with query [{question}]")
+
+        answer = self._answer_detour(
+            action=action,
+            question=question,
+            history=history,
+            session_id=session_id,
+            trace=trace,
+            record=record,
+            timings=timings,
+        )
+
+        # Too many detours - let the quote go instead of nagging the user.
+        if slot.detour_limit_reached():
+            slot.reset()
+            trace.pricing.slot_state = slot.state.value
+            return action.value, f"{answer}\n\n{GIVE_UP_MESSAGE}"
+
+        slot.resume()
+        trace.pricing.slot_state = slot.state.value
+        return action.value, f"{answer}\n\n{_build_return_line(slot, decision.about_current_options)}"
+
+    # staticmethod because this only reads its own arguments - no self, so it
+    # can never touch or break the manager's state.
+    @staticmethod
+    def _pick_answer_text(decision, message: str, slot: SlotManager) -> str:
+        """
+        Chooses what to feed the price handler when the user answered us.
+
+        We prefer the value the router cleaned up, but only when it really is one
+        of the choices we offered - the model must never invent a brand or size.
+        """
+        value = decision.normalized_value
+        if not value:
+            return message
+
+        # Yes/no answers are handled inside price_handler, keep the raw words.
+        if slot.waiting_for == "product_confirmation":
+            return message
+
+        if slot.options and value not in slot.options:
+            logger.warning(
+                f"FlowManager: router returned '{value}' which is not in "
+                f"{slot.options}; using the raw message instead"
+            )
+            return message
+
+        return value
+
+    def _answer_detour(
+        self,
+        *,
+        action,
+        question: str,
+        history: list,
+        session_id: str,
+        trace: DebugTrace,
+        record,
+        timings: Dict[str, float],
+    ) -> str:
+        """Answers the off-topic question the user asked in the middle of a quote."""
+        t0 = time.perf_counter()
+
+        if action is PendingAction.TECHNICAL:
+            trace.technical = TechnicalTrace()
+            with get_openai_callback() as cb:
+                answer = handle_technical_query(
+                    question,
+                    history=history,
+                    context=self._get_technical_context(session_id),
+                    trace=trace.technical,
+                )
+            record(cb, "technical", "gpt-4o")
+
+        elif action is PendingAction.FAQ:
+            trace.faq = FaqTrace()
+            with get_openai_callback() as cb:
+                answer = get_chat_response(question, history=history, trace=trace.faq)
+            record(cb, "faq", "gpt-4o")
+
+        else:
+            trace.general = GeneralTrace()
+            with get_openai_callback() as cb:
+                answer = handle_general_query(question, history=history, trace=trace.general)
+            record(cb, "general", "gpt-4o")
+
+        timings[f"detour ({action.value})"] = time.perf_counter() - t0
+        return answer
+
     def process_message(self, user_message: str, session_id: str) -> ProcessResult:
         t_start = time.perf_counter()
         timings = {}
@@ -119,16 +281,36 @@ class FlowManager:
 
             slot = self._get_slot(session_id)
 
-            if self._has_pending_price_session(session_id):
+            if self._has_pending_price_session(session_id) and slot.last_question:
+                # We asked the user something and this is their reply. It may be the
+                # answer, a change of mind, or a different question - so we ask the
+                # router instead of pushing every message straight into the slot.
                 logger.info(f"FlowManager: Continuing pending price session [{session_id}]")
                 t0 = time.perf_counter()
                 trace.pricing = PricingTrace()
+
                 with get_openai_callback() as cb:
-                    response = handle_price_query(cleaned_message, slot=slot, trace=trace.pricing)
-                _record(cb, "pricing", "gpt-4o")
-                timings["handle_price_query (pending session)"] = time.perf_counter() - t0
-                # Router was skipped (slot-filling shortcut), but this is still a pricing turn.
-                detected_intent = "pricing"
+                    decision = self.router.route_pending(
+                        cleaned_message,
+                        question_text=slot.last_question,
+                        options=slot.options,
+                    )
+                _record(cb, "router_pending", "gpt-4o-mini")
+                timings["router.route_pending"] = time.perf_counter() - t0
+
+                trace.pricing.pending_action = decision.action.value
+                logger.info(f"FlowManager: Pending decision [{decision.action.value}]")
+
+                detected_intent, response = self._handle_pending_turn(
+                    decision=decision,
+                    message=cleaned_message,
+                    slot=slot,
+                    history=history,
+                    session_id=session_id,
+                    trace=trace,
+                    record=_record,
+                    timings=timings,
+                )
 
             else:
                 t0 = time.perf_counter()
