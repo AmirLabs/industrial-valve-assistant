@@ -1,11 +1,23 @@
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 from src.tools.pricing.entities import ProductEntities
 from src.tools.pricing.product_repository import query_products, get_unique_values, get_available_sizes
 from src.preprocess.text_cleaning import get_fallback_suggestion
 
 logger = logging.getLogger(__name__)
+
+# How many times the user may step away from the quote before we let it go.
+MAX_DETOURS = 3
+
+
+class SlotState(str, Enum):
+    """Where a pricing conversation currently stands."""
+    INACTIVE = "inactive"   # no pricing flow at all
+    ACTIVE = "active"       # we asked something and wait for the answer
+    PAUSED = "paused"       # flow is alive, but right now we answer another question
+
 
 @dataclass
 class SlotResult:
@@ -27,17 +39,60 @@ class SlotManager:
         self.fields: list[str] = []                        # all parameters still missing
         self.waiting_for: Optional[str] = None             # parameter we asked about RIGHT NOW
         self.options: Optional[list] = None                # choices shown to user
-        self.is_active: bool = False                       # True = inside pricing flow
+        self.state: SlotState = SlotState.INACTIVE         # inactive / active / paused
+        self.last_question: Optional[str] = None           # the exact text we showed the user
+        self.detour_count: int = 0                         # times the user stepped away from the quote
         self.suggestion: Optional[str] = None              # suggested product name shown to user (Scenario A)
         self.retry_count: int = 0                          # how many times user gave wrong product name
+
+    @property
+    def is_active(self) -> bool:
+        """
+        True while a pricing flow is alive - both while we wait for an answer
+        and while it is paused. Read-only: change self.state instead.
+        """
+        return self.state is not SlotState.INACTIVE
 
     def start(self, entities: ProductEntities) -> None:
         """Called when pricing flow begins."""
         self.entities = entities
-        self.is_active = True
+        self.state = SlotState.ACTIVE
         self.waiting_for = None
         self.options = None
         self.fields = []
+        self.last_question = None
+        self.detour_count = 0
+
+    def remember_question(self, text: str) -> None:
+        """
+        Stores the question exactly as the user saw it.
+        We need this text later to ask it again after a detour, and to tell
+        the router what we are waiting for.
+        """
+        self.last_question = text
+
+    def pause(self) -> None:
+        """
+        Called when the user asks something else in the middle of the quote.
+        Keeps every filled slot - only the state changes.
+        """
+        if self.state is SlotState.ACTIVE:
+            self.state = SlotState.PAUSED
+            self.detour_count += 1
+            logger.info(
+                f"SlotManager [{self.session_id}]: paused "
+                f"(detour {self.detour_count}/{MAX_DETOURS})"
+            )
+
+    def resume(self) -> None:
+        """Called after the other question is answered and we ask ours again."""
+        if self.state is SlotState.PAUSED:
+            self.state = SlotState.ACTIVE
+            logger.info(f"SlotManager [{self.session_id}]: resumed")
+
+    def detour_limit_reached(self) -> bool:
+        """True when the user stepped away too many times to keep the quote open."""
+        return self.detour_count >= MAX_DETOURS
 
     def patch(self, value: str) -> None:
         """
@@ -48,6 +103,7 @@ class SlotManager:
             setattr(self.entities, self.waiting_for, value.strip())
             self.waiting_for = None
             self.options = None
+            self.last_question = None
 
     def reset(self) -> None:
         """Called when pricing flow ends (found or not_found)."""
@@ -55,7 +111,9 @@ class SlotManager:
         self.fields = []
         self.waiting_for = None
         self.options = None
-        self.is_active = False
+        self.state = SlotState.INACTIVE
+        self.last_question = None
+        self.detour_count = 0
         self.suggestion = None
         self.retry_count = 0
 
