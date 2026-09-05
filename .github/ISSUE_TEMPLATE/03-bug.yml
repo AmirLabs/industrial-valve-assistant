@@ -1,0 +1,77 @@
+name: "🐛 Bug"
+description: Something is broken, crashes, or returns the wrong thing.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - core/router (intent + pending)
+        - core/flow_manager
+        - tools/technical
+        - tools/pricing
+        - tools/faq
+        - tools/general
+        - preprocess (text_cleaning / pdf_loader)
+        - status (memory / slots / technical context)
+        - database & observability
+        - api
+        - prompts
+        - data & catalogs
+        - tests
+        - unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact message sequence. For a pricing bug, include every turn — slot state depends on the whole conversation.
+      value: |
+        1. User:
+        2. Assistant:
+        3. User:
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What really happened. Paste the message, or the traceback if it crashed.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical — breaks the conversation / 500s
+        - High — wrong answer given to a real customer
+        - Medium — annoying but recoverable
+        - Low — cosmetic
+    validations:
+      required: true
+
+  - type: input
+    id: session
+    attributes:
+      label: session_id (optional)
+      description: Lets us pull the conversation and its debug trace out of conversations.db.
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: Debug trace / logs (optional)
+      render: json
