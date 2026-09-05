@@ -37,25 +37,30 @@ body:
   - type: textarea
     id: user_message
     attributes:
-      label: User message
-      description: The exact Persian message that triggered this.
+      label: User message (optional)
+      description: |
+        The exact Persian message that triggered this, if there is one.
+        Leave empty when the issue is about a whole pipeline rather than one answer.
       placeholder: قیمت شیر کشویی ۴ اینچ چنده؟
-    validations:
-      required: true
 
   - type: textarea
     id: current
     attributes:
-      label: Current output
-      description: Paste the assistant's real answer, exactly as it came back.
+      label: Current behaviour / output
+      description: |
+        Paste the assistant's real answer exactly as it came back — or, for a
+        pipeline-level issue, describe what the code does today. Be concrete:
+        file paths, real numbers, measured sizes.
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: What it should look like instead
-      description: Write the answer you actually want. A concrete rewrite beats an abstract complaint.
+      label: What it should be instead
+      description: |
+        Write the answer you actually want, or the behaviour you are aiming for.
+        Something concrete beats an abstract complaint.
     validations:
       required: true
 
@@ -73,8 +78,7 @@ body:
         - Wrong route taken (should have gone elsewhere)
         - Too slow
         - Too expensive (unnecessary model calls)
-    validations:
-      required: true
+        - Retrieval quality (wrong chunks come back)
 
   - type: textarea
     id: trace
