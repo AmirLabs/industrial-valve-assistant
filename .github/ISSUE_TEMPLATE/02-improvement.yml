@@ -1,0 +1,96 @@
+name: "📈 Improvement / Answer Quality"
+description: Something already works, but the output should be better, nicer, or more accurate.
+title: "[improve] "
+labels: ["improvement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the main template for the current round of work: the behaviour
+        exists, but the answer is weak, ugly, too long, too generic, or wrong in tone.
+
+        Fill **Current output** with a real answer you actually got — copy it verbatim,
+        do not summarise it. That verbatim text is what makes the issue useful in a month.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - core/router (intent + pending)
+        - core/flow_manager
+        - tools/technical
+        - tools/pricing
+        - tools/faq
+        - tools/general
+        - preprocess (text_cleaning / pdf_loader)
+        - status (memory / slots / technical context)
+        - database & observability
+        - api
+        - prompts
+        - data & catalogs
+        - tests
+        - docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_message
+    attributes:
+      label: User message
+      description: The exact Persian message that triggered this.
+      placeholder: قیمت شیر کشویی ۴ اینچ چنده؟
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current output
+      description: Paste the assistant's real answer, exactly as it came back.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should look like instead
+      description: Write the answer you actually want. A concrete rewrite beats an abstract complaint.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem_kind
+    attributes:
+      label: What is wrong with it?
+      multiple: true
+      options:
+        - Wrong or fabricated information
+        - Correct but poorly worded / bad tone
+        - Too long / too short
+        - Bad formatting (no structure, wall of text)
+        - Missing context from earlier in the conversation
+        - Wrong route taken (should have gone elsewhere)
+        - Too slow
+        - Too expensive (unnecessary model calls)
+    validations:
+      required: true
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: Debug trace (optional)
+      description: |
+        The row from `debug_traces` for this turn, if you have it.
+        It shows the route taken, CRAG decision, scores and timings.
+      render: json
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true

@@ -1,0 +1,69 @@
+name: "🧹 Tech Debt / Refactor"
+description: Code that works but is wrong, dead, duplicated, or built in a hurry.
+title: "[debt] "
+labels: ["tech-debt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for the things you already know are wrong — dead code, a shortcut
+        taken under deadline, state that will not survive a restart.
+        The "Known Gaps" section of the README is the backlog this template drains.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - core/router (intent + pending)
+        - core/flow_manager
+        - tools/technical
+        - tools/pricing
+        - tools/faq
+        - tools/general
+        - preprocess (text_cleaning / pdf_loader)
+        - status (memory / slots / technical context)
+        - database & observability
+        - api
+        - prompts
+        - data & catalogs
+        - tests
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong today?
+      description: Point at the code. File and line if you can.
+      placeholder: |
+        src/tools/technical/rag_system.py:22 — CONFIDENCE_THRESHOLD is declared and
+        attached to every result as passed_threshold, but nothing ever reads it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: What does it cost us if we leave it?
+      description: Be honest — "nothing yet, but it will bite on multi-worker deploy" is a valid answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed fix
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk_level
+    attributes:
+      label: Risk of changing it
+      options:
+        - Low — isolated, easy to revert
+        - Medium — touches a live route, needs testing
+        - High — changes behaviour customers already rely on
+    validations:
+      required: true

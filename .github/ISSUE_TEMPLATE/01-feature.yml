@@ -1,0 +1,97 @@
+name: "✨ Feature / New Skill"
+description: A new capability the assistant does not have yet.
+title: "[feat] "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for something **new** — a new skill, a new route, a new tool.
+        If the behaviour already exists and you want it to work better,
+        use **Improvement** instead.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      description: Which part of the system does this live in?
+      options:
+        - core/router (intent + pending)
+        - core/flow_manager
+        - tools/technical
+        - tools/pricing
+        - tools/faq
+        - tools/general
+        - preprocess (text_cleaning / pdf_loader)
+        - status (memory / slots / technical context)
+        - database & observability
+        - api
+        - prompts
+        - data & catalogs
+        - tests
+        - docs
+        - new module
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do?
+      description: Describe the capability from the user's point of view, not the code's.
+      placeholder: |
+        The assistant should be able to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it needed?
+      description: What does the user hit today without it? What breaks or feels wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example conversation
+      description: A real Persian exchange showing the feature in action. This is the spec — be concrete.
+      value: |
+        **User:**
+
+        **Assistant (expected):**
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know it is done? One checkbox per verifiable outcome.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: touches
+    attributes:
+      label: Files likely touched
+      description: Best guess is fine — it makes the work easier to pick up later.
+      placeholder: |
+        - src/tools/technical/technical_handler.py
+        - src/prompts/technical.py
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Estimated size
+      options:
+        - S — one file, under an hour
+        - M — a few files, half a day
+        - L — cross-module, needs a plan first
+    validations:
+      required: true
